@@ -23,7 +23,7 @@ local function draw()
         Point3F(vehicle_position.x, vehicle_position.y, vehicle_position.z),
         String(player.name.." ("..tostring(math.floor(distance)).."m)"),
         ColorF(1, 1, 1, 1),
-        true,
+        false,
         false,
         ColorI(0, 0, 0, 255)
       )
