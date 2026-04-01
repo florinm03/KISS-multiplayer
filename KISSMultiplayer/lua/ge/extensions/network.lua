@@ -1,6 +1,6 @@
 local M = {}
 
-M.VERSION_STR = "0.7.0"
+M.VERSION_STR = "0.7.1"
 M.is_server_public = false
 
 M.downloads = {}
