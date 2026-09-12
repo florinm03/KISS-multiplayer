@@ -24,6 +24,8 @@ pub const VERSION: (u32, u32) = (
     parse_env_u32(env!("CARGO_PKG_VERSION_MINOR"))
 );
 
+pub const MASTER_SERVER: &str = "kissmp.thehellbox.ru";
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientInfoPrivate {
     pub name: String,
@@ -51,6 +53,8 @@ pub struct ServerInfo {
     pub max_vehicles_per_client: u8,
     pub mods: Vec<(String, u32)>,
     pub server_identifier: String,
+    pub require_scripts: bool,
+    pub require_mods: bool
 }
 
 impl ClientInfoPublic {
@@ -89,6 +93,7 @@ pub enum ClientCommand {
     CouplerAttached(CouplerAttached),
     CouplerDetached(CouplerDetached),
     ElectricsUndefinedUpdate(u32, ElectricsUndefined),
+    ControllersUndefinedUpdate(u32, ControllerUndefined),
     VoiceChatPacket(Vec<u8>),
     // Only used by bridge
     SpatialUpdate([f32; 3], [f32; 3]),
@@ -107,7 +112,7 @@ pub enum ClientCommand {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ServerCommand {
     VehicleUpdate(VehicleUpdate),
-    VehicleSpawn(VehicleData),
+    VehicleSpawn(VehicleData, Option<ElectricsUndefined>, Option<ControllerUndefined>),
     RemoveVehicle(u32),
     ResetVehicle(VehicleReset),
     Chat(String, Option<u32>),
@@ -120,6 +125,7 @@ pub enum ServerCommand {
     CouplerAttached(CouplerAttached),
     CouplerDetached(CouplerDetached),
     ElectricsUndefinedUpdate(u32, ElectricsUndefined),
+    ControllersUndefinedUpdate(u32, ControllerUndefined),
     ServerInfo(ServerInfo),
     FilePart(String, Vec<u8>, u32, u32, u32),
     VoiceChatPacket(u32, [f32; 3], Vec<u8>),

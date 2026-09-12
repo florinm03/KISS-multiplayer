@@ -87,6 +87,8 @@ pub struct Server {
     public_address: Option<String>,
     mods: Option<Vec<String>>,
     tick: u64,
+    require_scripts: bool,
+    require_mods: bool,
 }
 
 impl Server {
@@ -117,8 +119,12 @@ impl Server {
             server_identifier: config.server_identifier,
             upnp_enabled: config.upnp_enabled,
             public_address: None,
-            mods: config.mods,
+            mods: config.mods.clone(),
             tick: 0,
+            require_scripts: config.require_scripts,
+            require_mods: crate::list_mods(config.mods)
+                .map(|(m, _)| !m.is_empty())
+                .unwrap_or(false),
         }
     }
     pub async fn run(
@@ -135,7 +141,7 @@ impl Server {
                 self.upnp_port = Some(port);
                 info!("Fetching public IP address...");
                 let socket = UdpSocket::bind(&addr).unwrap();
-                let _ = socket.connect("kissmp.thehellbox.ru:3691");
+                let _ = socket.connect(format!("{}:3691", shared::MASTER_SERVER));
                 let mut i = 0;
                 while i < 5 {
                     let _ = socket.send(b"hi");
@@ -175,9 +181,8 @@ impl Server {
 
         let mut transport = quinn::TransportConfig::default();
         transport.max_idle_timeout(Some(
-            IdleTimeout::try_from(std::time::Duration::from_secs(60)).unwrap(),
+            IdleTimeout::try_from(std::time::Duration::from_secs(10)).unwrap(),
         ));
-        transport.keep_alive_interval(Some(std::time::Duration::from_secs(2)));
 
         // settings for VPN like Hamachi
         transport.initial_mtu(1200);
@@ -282,14 +287,16 @@ impl Server {
             "description": self.description.clone(),
             "map": self.map.clone(),
             "port": self.port,
-            "version": shared::VERSION
+            "version": shared::VERSION,
+            "require_scripts": self.require_scripts,
+            "require_mods": self.require_mods,
         })
         .to_string();
 
         let client = self.reqwest_client.clone();
         tokio::spawn(async move {
             let _ = client
-                .post("http://kissmp.thehellbox.ru:3692")
+                .post(format!("http://{}:3692", shared::MASTER_SERVER))
                 .body(server_info)
                 .send()
                 .await;
@@ -305,23 +312,6 @@ impl Server {
     ) -> anyhow::Result<()> {
         debug!("Connection handshake starting...");
         debug!("Connection stats: {:?}", connection.stats());
-
-        // timeout for receiving client info
-        let _client_info = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            async {
-                let mut stream = connection.accept_uni().await?;
-                debug!("Receiving client info stream...");
-                let mut buf = [0; 4];
-                stream.read_exact(&mut buf[0..4]).await?;
-                let len = u32::from_le_bytes(buf).min(16384) as usize;
-                debug!("Expected client info length: {}", len);
-                let mut buf: Vec<u8> = vec![0; len];
-                stream.read_exact(&mut buf).await?;
-                debug!("Received client info bytes: {} bytes", buf.len());
-                Ok::<_, anyhow::Error>(buf)
-            }
-        ).await;
 
         if self.connections.len() >= self.max_players.into() {
             connection.close(0u32.into(), b"Server is full");
@@ -405,17 +395,15 @@ impl Server {
                 .await
                 .unwrap();
             debug!("[CONNECT_TASK] Starting drive_receive for {}", id);
-            if let Err(_e) = Self::drive_receive(
+            let _ = Self::drive_receive(
                 id,
                 connection_clone.clone(),
                 client_events_tx.clone(),
             )
-            .await
-            {
-                let _ = client_events_tx
-                    .send((id, IncomingEvent::ConnectionLost))
-                    .await;
-            }
+            .await;
+            let _ = client_events_tx
+                .send((id, IncomingEvent::ConnectionLost))
+                .await;
         });
 
         let server_info =
@@ -428,6 +416,8 @@ impl Server {
                 max_vehicles_per_client: self.max_vehicles_per_client,
                 mods: list_mods(self.mods.clone()).unwrap().0,
                 server_identifier: self.server_identifier.clone(),
+                require_scripts: self.require_scripts,
+                require_mods: self.require_mods,
             }))
             .unwrap();
         // Sender

@@ -30,7 +30,7 @@ local function save_favorites()
 end
 
 local function load_favorites(m)
-  local kissui = kissui or m
+  local kissmp_ui = kissmp_ui or m
   local jsonData = jsonReadFile("/settings/kissmp_favorites.json")
   if jsonData then
     M.favorite_servers = jsonData
@@ -38,11 +38,11 @@ local function load_favorites(m)
 end
 
 local function update_favorites(m)
-  local kissui = kissui or m
+  local kissmp_ui = kissmp_ui or m
   local update_count = 0
   for addr, server in pairs(M.favorite_servers) do
     if not server.added_manually then
-      local server_from_list = kissui.tabs.server_list.server_list[addr]
+      local server_from_list = kissmp_ui.tabs.server_list.server_list[addr]
       local server_found_in_list = server_from_list ~= nil
 
       if server_found_in_list then
@@ -82,13 +82,13 @@ local function remove_server_from_favorites(addr)
 end
 
 local function draw_add_favorite_window()
-  if not kissui.gui.isWindowVisible("Add Favorite") then return end
+  if not kissmp_ui.gui.isWindowVisible("Add Favourite") then return end
 
   local display_size = imgui.GetIO().DisplaySize
   imgui.SetNextWindowPos(imgui.ImVec2(display_size.x / 2, display_size.y / 2), imgui.Cond_Always, imgui.ImVec2(0.5, 0.5))
 
-  imgui.SetNextWindowBgAlpha(kissui.window_opacity[0])
-  if imgui.Begin("Add Favorite", kissui.gui.getWindowVisibleBoolPtr("Add Favorite"), bit.bor(imgui.WindowFlags_NoScrollbar ,imgui.WindowFlags_NoResize, imgui.WindowFlags_AlwaysAutoResize)) then
+  imgui.SetNextWindowBgAlpha(kissmp_ui.window_opacity)
+  if imgui.Begin("Add Favourite", kissmp_ui.gui.getWindowVisibleBoolPtr("Add Favourite"), bit.bor(imgui.WindowFlags_NoScrollbar ,imgui.WindowFlags_NoResize, imgui.WindowFlags_AlwaysAutoResize)) then
     imgui.Text("Name:")
     imgui.SameLine()
     imgui.PushItemWidth(-1)
@@ -114,11 +114,11 @@ local function draw_add_favorite_window()
         add_direct_server_to_favorites(addr, name)
       end
 
-      kissui.gui.hideWindow("Add Favorite")
+      kissmp_ui.gui.hideWindow("Add Favourite")
     end
     imgui.SameLine()
     if imgui.Button("Cancel", imgui.ImVec2(button_width, 0)) then
-      kissui.gui.hideWindow("Add Favorite")
+      kissmp_ui.gui.hideWindow("Add Favourite")
     end
   end
   imgui.End()
@@ -153,7 +153,7 @@ local function draw()
 
   imgui.BeginChild1("Scrolling", imgui.ImVec2(0, -30), true)
   for addr, server in spairs(M.favorite_servers, function(t,a,b) return t[b].name:lower() > t[a].name:lower() end) do
-    local server_from_list = kissui.tabs.server_list.server_list[addr]
+    local server_from_list = kissmp_ui.tabs.server_list.server_list[addr]
     local server_found_in_list = server_from_list ~= nil
     favorites_count = favorites_count + 1
 
@@ -181,13 +181,13 @@ local function draw()
 
       imgui.PopTextWrapPos()
       if imgui.Button("Connect###connect_button_" .. tostring(favorites_count)) then
-        kissconfig.save_config()
-        local player_name = ffi.string(kissui.player_name)
+        local player_name = ffi.string(kissmp_ui.player_name)
+        kissmp_config.set_setting("ui.name", player_name)
         -- if it was added manually (direct IP), trust it (false); otherwise, it's public (true)
-        network.connect(addr, player_name, not server.added_manually)
+        kissmp_network.connect(addr, player_name, not server.added_manually)
       end
       imgui.SameLine()
-      if imgui.Button("Remove from Favorites###remove_favorite_button_" .. tostring(favorites_count)) then
+      if imgui.Button("Remove from Favourites###remove_favorite_button_" .. tostring(favorites_count)) then
         remove_server_from_favorites(addr)
       end
     end
@@ -195,7 +195,7 @@ local function draw()
 
   imgui.PushTextWrapPos(0)
   if favorites_count == 0 then
-    imgui.Text("Favorites list is empty")
+    imgui.Text("Favourites list is empty")
   end
   imgui.PopTextWrapPos()
 
@@ -205,12 +205,12 @@ local function draw()
   local button_width = content_width * 0.495
 
   if imgui.Button("Refresh List", imgui.ImVec2(button_width, 0)) then
-    kissui.tabs.server_list.refresh()
-    kissui.tabs.server_list.update_filtered()
+    kissmp_ui.tabs.server_list.refresh()
+    kissmp_ui.tabs.server_list.update_filtered()
   end
   imgui.SameLine()
   if imgui.Button("Add", imgui.ImVec2(button_width, 0)) then
-    kissui.gui.showWindow("Add Favorite")
+    kissmp_ui.gui.showWindow("Add Favourite")
   end
 end
 

@@ -7,6 +7,31 @@ impl Server {
         match event {
             ClientConnected(connection) => {
                 let player_name = connection.client_info_public.name.clone();
+
+                let secret = connection.client_info_private.secret.clone();
+
+                // Kick ghost IDs to prevent client duplication
+                let ghost_id = self.connections.iter()
+                    .find(|(_, c)| c.client_info_private.secret == secret)
+                    .map(|(&id, _)| id);
+
+                if let Some(id) = ghost_id {
+                    // Remove ghost and drop the connection
+                    if let Some(ghost) = self.connections.remove(&id) {
+                        ghost.conn.close(0u32.into(), b"Reconnected");
+                    }
+                    // Remove ghost vehicles
+                    if let Some(client_vehicles) = self.vehicle_ids.get(&id).cloned() {
+                        for (_, vid) in client_vehicles {
+                            self.remove_vehicle(vid, Some(id)).await;
+                        }
+                    }
+                    // Tell remaining clients to delete ghost's nametag/list entry
+                    for (_, client) in &mut self.connections {
+                        let _ = client.ordered.send(ServerCommand::PlayerDisconnected(id)).await;
+                    }
+                }
+
                 self.connections.insert(client_id, connection);
                 // Kinda ugly, but idk how to deal with lifetimes otherwise
                 let mut client_info_list = vec![];
@@ -25,7 +50,7 @@ impl Server {
                 for (_, vehicle) in &self.vehicles {
                     let _ = connection
                         .ordered
-                        .send(ServerCommand::VehicleSpawn(vehicle.data.clone()))
+                        .send(ServerCommand::VehicleSpawn(vehicle.data.clone(), vehicle.electrics_undefined.clone(), vehicle.controller_undefined.clone()))
                         .await;
                 }
                 for info in client_info_list {
@@ -49,42 +74,29 @@ impl Server {
                 });
             }
             ConnectionLost => {
-                let player_name = self
-                    .connections
-                    .get(&client_id)
-                    .unwrap()
-                    .client_info_public
-                    .name
-                    .clone();
-                self.connections
-                    .get_mut(&client_id)
-                    .unwrap()
-                    .conn
-                    .close(0u32.into(), b"");
-                self.connections.remove(&client_id);
-                if let Some(client_vehicles) = self.vehicle_ids.clone().get(&client_id) {
-                    for (_, id) in client_vehicles {
-                        self.remove_vehicle(*id, Some(client_id)).await;
+                if let Some(client) = self.connections.remove(&client_id) {
+                    let player_name = client.client_info_public.name.clone();
+                    client.conn.close(0u32.into(), b"");
+                    
+                    if let Some(client_vehicles) = self.vehicle_ids.clone().get(&client_id) {
+                        for (_, id) in client_vehicles {
+                            self.remove_vehicle(*id, Some(client_id)).await;
+                        }
                     }
+                    for (_, c) in &mut self.connections {
+                        c.send_chat_message(format!("Player {} has left the server", player_name)).await;
+                        let _ = c.ordered.send(ServerCommand::PlayerDisconnected(client_id)).await;
+                    }
+                    let _ = self.update_lua_connections();
+                    self.lua.context(|lua_ctx| {
+                        let _ = crate::lua::run_hook::<u32, ()>(
+                            lua_ctx,
+                            String::from("OnPlayerDisconnected"),
+                            client_id,
+                        );
+                    });
+                    info!("Client has disconnected from the server");
                 }
-                for (_, client) in &mut self.connections {
-                    client
-                        .send_chat_message(format!("Player {} has left the server", player_name))
-                        .await;
-                    let _ = client
-                        .ordered
-                        .send(ServerCommand::PlayerDisconnected(client_id))
-                        .await;
-                }
-                let _ = self.update_lua_connections();
-                self.lua.context(|lua_ctx| {
-                    let _ = crate::lua::run_hook::<u32, ()>(
-                        lua_ctx,
-                        String::from("OnPlayerDisconnected"),
-                        client_id,
-                    );
-                });
-                info!("Client has disconnected from the server");
             }
             ClientCommand(command) => {
                 match command {
@@ -207,17 +219,41 @@ impl Server {
                         if let Some(server_id) =
                             self.get_server_id_from_game_id(client_id, vehicle_id)
                         {
-                            /* if let Some(vehicle) = self.vehicles.get_mut(&server_id) {
-                                for (key, value) in &undefined_update.diff {
-                                    if let Some(electrics) = &mut vehicle.electrics {
-                                        electrics.undefined.insert(key.clone(), *value);
+                            // Server-side caching
+                            if let Some(vehicle) = self.vehicles.get_mut(&server_id) {
+                                if let Some(electrics_undefined) = &mut vehicle.electrics_undefined {
+                                    for (key, value) in &undefined_update.diff {
+                                        electrics_undefined.diff.insert(key.clone(), *value);
                                     }
                                 }
-                            }*/
+                            }
                             for (_, client) in &mut self.connections {
                                 let _ = client
                                     .ordered
                                     .send(ServerCommand::ElectricsUndefinedUpdate(
+                                        server_id,
+                                        undefined_update.clone(),
+                                    ))
+                                    .await;
+                            }
+                        }
+                    }
+                    ControllersUndefinedUpdate(vehicle_id, undefined_update) => {
+                        if let Some(server_id) =
+                            self.get_server_id_from_game_id(client_id, vehicle_id)
+                        {
+                            // Server-side caching
+                            if let Some(vehicle) = self.vehicles.get_mut(&server_id) {
+                                if let Some(controller_undefined) = &mut vehicle.controller_undefined {
+                                    for (key, value) in &undefined_update.diff {
+                                        controller_undefined.diff.insert(key.clone(), value.clone());
+                                    }
+                                }
+                            }
+                            for (_, client) in &mut self.connections {
+                                let _ = client
+                                    .ordered
+                                    .send(ServerCommand::ControllersUndefinedUpdate(
                                         server_id,
                                         undefined_update.clone(),
                                     ))

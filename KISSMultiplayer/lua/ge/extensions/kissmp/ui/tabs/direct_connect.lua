@@ -42,17 +42,18 @@ end
 
 local function draw()
   imgui.Text("Server address:")
-  imgui.InputText("##addr", kissui.addr)
+  imgui.InputText("##addr", kissmp_ui.addr)
   imgui.SameLine()
   if imgui.Button("Connect") then
-    local addr = trim(ffi.string(kissui.addr))
-    kissui.addr = imgui.ArrayChar(128, addr)
+    local addr = trim(ffi.string(kissmp_ui.addr))
+    kissmp_ui.addr = imgui.ArrayChar(128, addr)
     if addr:len() > 0 then
       update_history_for_addr(addr)
     end
-    local player_name = ffi.string(kissui.player_name)
-    kissconfig.save_config()
-    network.connect(addr, player_name, false)
+    local player_name = ffi.string(kissmp_ui.player_name)
+    kissmp_config.set_setting("ui.name", player_name)
+    kissmp_config.set_setting("ui.addr", addr)
+    kissmp_network.connect(addr, player_name, false)
   end
 
   imgui.Spacing()
@@ -74,7 +75,7 @@ local function draw()
       imgui.SameLine()
       local label = entry.addr .. "###direct_connect_history_" .. i
       if imgui.Selectable1(label, history_index == i) then
-        kissui.addr = imgui.ArrayChar(128, entry.addr)
+        kissmp_ui.addr = imgui.ArrayChar(128, entry.addr)
         history_index = i
       end
 
